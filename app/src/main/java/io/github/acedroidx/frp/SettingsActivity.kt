@@ -759,16 +759,13 @@ class SettingsActivity : ComponentActivity() {
         runCatching {
             contentResolver.openOutputStream(uri)?.use { outputStream ->
                 ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
-                    appendDirToZip(
-                        FrpType.FRPC.getDir(this@SettingsActivity),
-                        "files/${FrpType.FRPC.typeName}/",
-                        zipOut
-                    )
-                    appendDirToZip(
-                        FrpType.FRPS.getDir(this@SettingsActivity),
-                        "files/${FrpType.FRPS.typeName}/",
-                        zipOut
-                    )
+                    FrpType.entries.forEach { type ->
+                        appendDirToZip(
+                            type.getDir(this@SettingsActivity),
+                            "files/${type.typeName}/",
+                            zipOut
+                        )
+                    }
 
                     val prefsFile = File(dataDir, "shared_prefs/data.xml")
                     if (prefsFile.exists()) {
@@ -826,7 +823,7 @@ class SettingsActivity : ComponentActivity() {
         dir.listFiles()?.forEach { file ->
             if (file.isDirectory) {
                 appendDirToZip(file, basePath + file.name + "/", zipOut)
-            } else {
+            } else if (file.isFile && file.name.endsWith(".toml")) {
                 appendFileToZip(file, basePath + file.name, zipOut)
             }
         }
@@ -851,13 +848,12 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun loadConfigList() {
-        val frpcConfigs = (FrpType.FRPC.getDir(this).list()?.toList() ?: emptyList()).map {
-            FrpConfig(FrpType.FRPC, it)
+        allConfigs.value = FrpType.entries.flatMap { type ->
+            type.getDir(this).listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".toml") }
+                ?.map { FrpConfig(type, it.name) }
+                ?: emptyList()
         }
-        val frpsConfigs = (FrpType.FRPS.getDir(this).list()?.toList() ?: emptyList()).map {
-            FrpConfig(FrpType.FRPS, it)
-        }
-        allConfigs.value = frpcConfigs + frpsConfigs
     }
 
     private fun loadQuickTileConfig() {

@@ -3,6 +3,8 @@ package io.github.acedroidx.frp
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.ServiceConnection
@@ -11,6 +13,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
@@ -22,14 +25,18 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.core.content.edit
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.rememberScrollableState
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,6 +54,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -90,8 +98,7 @@ import androidx.compose.runtime.collectAsState
 
 class MainActivity : ComponentActivity() {
     private val isStartup = MutableStateFlow(false)
-    private val frpcConfigList = MutableStateFlow<List<FrpConfig>>(emptyList())
-    private val frpsConfigList = MutableStateFlow<List<FrpConfig>>(emptyList())
+    private val configLists = MutableStateFlow<Map<FrpType, List<FrpConfig>>>(emptyMap())
     private val runningConfigList = MutableStateFlow<List<FrpConfig>>(emptyList())
     private val frpVersion = MutableStateFlow("")
     private val themeMode = MutableStateFlow("")
@@ -290,33 +297,29 @@ class MainActivity : ComponentActivity() {
     @Preview(showBackground = true)
     @Composable
     fun MainContent() {
-        val frpcConfigList by frpcConfigList.collectAsStateWithLifecycle(emptyList())
-        val frpsConfigList by frpsConfigList.collectAsStateWithLifecycle(emptyList())
+        val configLists by configLists.collectAsStateWithLifecycle(emptyMap())
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (frpcConfigList.isEmpty() && frpsConfigList.isEmpty()) {
+            if (configLists.values.all { it.isEmpty() }) {
                 Text(
                     stringResource(R.string.no_config),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
                 )
             }
-            if (frpcConfigList.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.frpc_label), style = MaterialTheme.typography.titleLarge
-                )
+            FrpType.entries.forEach { type ->
+                val configs = configLists[type].orEmpty()
+                if (configs.isNotEmpty()) {
+                    Text(
+                        typeLabel(type), style = MaterialTheme.typography.titleLarge
+                    )
+                    configs.forEach { config -> FrpConfigItem(config) }
+                }
             }
-            frpcConfigList.forEach { config -> FrpConfigItem(config) }
-            if (frpsConfigList.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.frps_label), style = MaterialTheme.typography.titleLarge
-                )
-            }
-            frpsConfigList.forEach { config -> FrpConfigItem(config) }
         }
     }
 
@@ -325,6 +328,15 @@ class MainActivity : ComponentActivity() {
     fun FrpConfigItem(config: FrpConfig = FrpConfig(FrpType.FRPC, "test.toml")) {
         val runningConfigList by runningConfigList.collectAsStateWithLifecycle(emptyList())
         val isRunning = runningConfigList.contains(config)
+        val startingConfigList by if (mBound) {
+            mService.startingConfigs.collectAsStateWithLifecycle(emptySet())
+        } else {
+            remember { MutableStateFlow(emptySet<FrpConfig>()) }.collectAsStateWithLifecycle(
+                emptySet()
+            )
+        }
+        val isStarting = startingConfigList.contains(config)
+        val isActive = isRunning || isStarting
         val showLog = remember { mutableStateOf(false) }
         val showDeleteDialog = remember { mutableStateOf(false) }
 
@@ -340,7 +352,7 @@ class MainActivity : ComponentActivity() {
         val configLog = configLogs[config] ?: ""
 
         // 初始化时加载日志
-        LaunchedEffect(showLog.value, isRunning, mBound) {
+        LaunchedEffect(showLog.value, isRunning, isStarting, mBound) {
             if (showLog.value && mBound) {
                 mService.getConfigLog(config)
             }
@@ -367,10 +379,22 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(config.fileName)
-                        if (isRunning) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
-                                stringResource(R.string.config_running),
+                                config.fileName,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            TypeBadge(config.type)
+                        }
+                        if (isActive) {
+                            Text(
+                                stringResource(
+                                    if (isStarting) R.string.config_starting
+                                    else R.string.config_running
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -386,7 +410,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .size(28.dp)
                             .combinedClickable(
-                                enabled = !isRunning,
+                                enabled = !isActive,
                                 onClick = { startConfigActivity(config) },
                                 onLongClick = {
                                     // 通过 ContentProvider 让外部应用读写配置
@@ -417,7 +441,7 @@ class MainActivity : ComponentActivity() {
                     IconButton(
                         onClick = {
                             showDeleteDialog.value = true
-                        }, enabled = !isRunning, modifier = Modifier.size(32.dp, 28.dp)
+                        }, enabled = !isActive, modifier = Modifier.size(32.dp, 28.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_baseline_delete_24),
@@ -426,13 +450,16 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    Switch(checked = isRunning, onCheckedChange = {
-                        if (it) {
-                            startShell(config)
-                        } else {
-                            stopShell(config)
-                        }
-                    })
+                    Switch(
+                        checked = isActive,
+                        enabled = !isStarting,
+                        onCheckedChange = {
+                            if (it) {
+                                startShell(config)
+                            } else {
+                                stopShell(config)
+                            }
+                        })
                 }
             }
 
@@ -470,34 +497,63 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 stringResource(R.string.config_log_title),
-                                style = MaterialTheme.typography.titleSmall
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f)
                             )
-                            Button(
+                            TextButton(
+                                onClick = { copyConfigLog(config, configLog) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    stringResource(R.string.copy),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                            }
+                            TextButton(
+                                onClick = { exportConfigLog(config, configLog) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    stringResource(R.string.export_log),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                            }
+                            TextButton(
                                 onClick = {
                                     if (mBound) {
                                         mService.clearConfigLog(config)
                                     }
-                                }, modifier = Modifier.size(width = 80.dp, height = 35.dp)
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                             ) {
                                 Text(
                                     stringResource(R.string.deleteButton),
-                                    style = MaterialTheme.typography.labelSmall
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
                                 )
                             }
                         }
-                        SelectionContainer {
-                            Text(
-                                text = configLog.ifEmpty {
-                                    stringResource(R.string.no_log)
-                                },
-                                style = MaterialTheme.typography.bodySmall.merge(fontFamily = FontFamily.Monospace),
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = configLog.ifEmpty {
+                                        stringResource(R.string.no_log)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.merge(fontFamily = FontFamily.Monospace),
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -526,6 +582,60 @@ class MainActivity : ComponentActivity() {
                     }
                 })
         }
+    }
+
+    private fun copyConfigLog(config: FrpConfig, log: String) {
+        if (log.isBlank()) {
+            Toast.makeText(this, getString(R.string.no_log), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(ClipData.newPlainText(config.fileName, log))
+        Toast.makeText(this, getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 导出到 /sdcard/隧道名-启动器-日期.log；
+     * 没有“所有文件访问权限”时回退到应用专属外部目录。
+     */
+    private fun exportConfigLog(config: FrpConfig, log: String) {
+        if (log.isBlank()) {
+            Toast.makeText(this, getString(R.string.no_log), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tunnelName = sanitizeFileNamePart(config.fileName.substringBeforeLast('.'))
+        val launcherName = sanitizeFileNamePart(config.type.getDisplayName(this))
+        val date = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "$tunnelName-$launcherName-$date.log"
+        val targets = listOfNotNull(
+            File(Environment.getExternalStorageDirectory(), fileName),
+            getExternalFilesDir(null)?.let { File(it, fileName) },
+        )
+        var lastError: Exception? = null
+        targets.forEach { target ->
+            try {
+                target.parentFile?.mkdirs()
+                target.writeText(log)
+                Toast.makeText(
+                    this, getString(R.string.log_exported, target.absolutePath), Toast.LENGTH_LONG
+                ).show()
+                return
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        Toast.makeText(
+            this,
+            getString(R.string.log_export_failed, lastError?.message ?: ""),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun sanitizeFileNamePart(value: String): String {
+        return value
+            .replace(Regex("""[\\/:*?"<>|\s]+"""), "_")
+            .trim('_')
+            .ifEmpty { "log" }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -561,83 +671,118 @@ class MainActivity : ComponentActivity() {
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleLarge
                     )
-                    val tabItems = listOf(FrpType.FRPC, FrpType.FRPS)
+                    val tabItems = FrpType.entries.toList()
                     val selectedIndex = tabItems.indexOf(selectedType.value).coerceAtLeast(0)
-                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
                         tabItems.forEachIndexed { index, type ->
                             SegmentedButton(
                                 selected = selectedIndex == index,
-                                onClick = { selectedType.value = type },
+                                onClick = {
+                                    selectedType.value = type
+                                },
                                 shape = SegmentedButtonDefaults.itemShape(
                                     index = index, count = tabItems.size
                                 ),
-                                modifier = Modifier.weight(1f),
                                 label = {
                                     Text(
-                                        when (type) {
-                                            FrpType.FRPC -> stringResource(R.string.frpc_label)
-                                            FrpType.FRPS -> stringResource(R.string.frps_label)
-                                        }
+                                        typeShortLabel(type),
+                                        maxLines = 1,
+                                        softWrap = false,
                                     )
                                 })
                         }
                     }
-                    val availableTemplates = templates[selectedType.value].orEmpty()
-                    if (availableTemplates.isEmpty()) {
-                        Text(
-                            stringResource(R.string.template_empty_message),
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
-                        )
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 360.dp)
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            availableTemplates.forEach { template ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                            alpha = 0.35f
-                                        )
-                                    ),
-                                    onClick = {
-                                        createConfigFromTemplate(template)
-                                        onClose()
-                                    }) {
-                                    Column(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            template.displayName,
-                                            style = MaterialTheme.typography.titleMedium
-                                        )
-                                        Text(
-                                            stringResource(
-                                                R.string.template_file_name, template.fileName
-                                            ),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            stringResource(
-                                                R.string.template_type_label, when (template.type) {
-                                                    FrpType.FRPC -> stringResource(R.string.frpc_label)
-                                                    FrpType.FRPS -> stringResource(R.string.frps_label)
-                                                }
-                                            ),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                    val currentType = selectedType.value
+                    if (currentType.isFrp()) {
+                        val availableTemplates = templates[currentType].orEmpty()
+                        if (availableTemplates.isEmpty()) {
+                            Text(
+                                stringResource(R.string.template_empty_message),
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 360.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                availableTemplates.forEach { template ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                                alpha = 0.35f
+                                            )
+                                        ),
+                                        onClick = {
+                                            createConfigFromTemplate(template)
+                                            onClose()
+                                        }) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                template.displayName,
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
+                                            Text(
+                                                stringResource(
+                                                    R.string.template_file_name, template.fileName
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                stringResource(
+                                                    R.string.template_type_label, when (template.type) {
+                                                        FrpType.FRPC -> stringResource(R.string.frpc_label)
+                                                        FrpType.FRPS -> stringResource(R.string.frps_label)
+                                                        else -> template.type.typeName
+                                                    }
+                                                ),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
+                        }
+                    } else {
+                        val initialContent = stringResource(
+                            if (currentType == FrpType.MEFRP) {
+                                R.string.mefrp_config_comment
+                            } else {
+                                R.string.cloudflare_config_comment
+                            }
+                        )
+                        Text(
+                            stringResource(
+                                if (currentType == FrpType.MEFRP) {
+                                    R.string.mefrp_create_hint
+                                } else {
+                                    R.string.cloudflare_create_hint
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Button(
+                            onClick = {
+                                createConfigFromContent(currentType, initialContent)
+                                onClose()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(stringResource(R.string.create_and_edit_button))
                         }
                     }
                     Row(
@@ -683,16 +828,14 @@ class MainActivity : ComponentActivity() {
     }
 
     fun checkConfig() {
+        FrpType.entries.forEach { type ->
+            val dir = type.getDir(this)
+            if (dir.exists() && !dir.isDirectory) {
+                dir.delete()
+            }
+            if (!dir.exists()) dir.mkdirs()
+        }
         val frpcDir = FrpType.FRPC.getDir(this)
-        if (frpcDir.exists() && !frpcDir.isDirectory) {
-            frpcDir.delete()
-        }
-        if (!frpcDir.exists()) frpcDir.mkdirs()
-        val frpsDir = FrpType.FRPS.getDir(this)
-        if (frpsDir.exists() && !frpsDir.isDirectory) {
-            frpsDir.delete()
-        }
-        if (!frpsDir.exists()) frpsDir.mkdirs()
         // v1.1旧版本配置迁移
         // 遍历文件夹内的所有文件
         this.filesDir.listFiles()?.forEach { file ->
@@ -749,6 +892,18 @@ class MainActivity : ComponentActivity() {
         startConfigActivity(config)
     }
 
+    private fun createConfigFromContent(type: FrpType, content: String) {
+        val currentDate = Date()
+        val formatter = SimpleDateFormat("yyyy-MM-dd HH.mm.ss", Locale.getDefault())
+        val fileName = "${formatter.format(currentDate)}.toml"
+        val targetDir = type.getDir(this)
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+        File(targetDir, fileName).writeText(content + "\n")
+        startConfigActivity(FrpConfig(type, fileName))
+    }
+
     private fun startConfigActivity(config: FrpConfig) {
         val intent = Intent(this, ConfigActivity::class.java)
         intent.putExtra(IntentExtraKey.FrpConfig, config)
@@ -798,31 +953,71 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateConfigList() {
-        frpcConfigList.value = (FrpType.FRPC.getDir(this).list()?.toList() ?: listOf()).map {
-            FrpConfig(FrpType.FRPC, it)
+        val lists = FrpType.entries.associateWith { type ->
+            type.getDir(this).listFiles()
+                ?.filter { it.isFile && it.name.endsWith(".toml") }
+                ?.map { FrpConfig(type, it.name) }
+                ?: emptyList()
         }
-        frpsConfigList.value = (FrpType.FRPS.getDir(this).list()?.toList() ?: listOf()).map {
-            FrpConfig(FrpType.FRPS, it)
-        }
+        configLists.value = lists
 
         // 检查自启动列表中是否含有已经删除的配置
-        val frpcAutoStartList =
-            preferences.getStringSet(PreferencesKey.AUTO_START_FRPC_LIST, emptySet())?.filter {
-                frpcConfigList.value.contains(
-                    FrpConfig(FrpType.FRPC, it)
-                )
+        FrpType.entries.forEach { type ->
+            val key = type.getAutoStartPreferencesKey()
+            val validNames = lists[type].orEmpty().map { it.fileName }.toSet()
+            val saved = preferences.getStringSet(key, emptySet()).orEmpty()
+            val filtered = saved.filter { it in validNames }.toSet()
+            if (filtered != saved) {
+                preferences.edit { putStringSet(key, filtered) }
             }
-        preferences.edit {
-            putStringSet(PreferencesKey.AUTO_START_FRPC_LIST, frpcAutoStartList?.toSet())
-        }
-        val frpsAutoStartList =
-            preferences.getStringSet(PreferencesKey.AUTO_START_FRPS_LIST, emptySet())?.filter {
-                frpsConfigList.value.contains(
-                    FrpConfig(FrpType.FRPS, it)
-                )
-            }
-        preferences.edit {
-            putStringSet(PreferencesKey.AUTO_START_FRPS_LIST, frpsAutoStartList?.toSet())
         }
     }
+}
+
+@Composable
+private fun typeLabel(type: FrpType): String {
+    return stringResource(
+        when (type) {
+            FrpType.FRPC -> R.string.frpc_label
+            FrpType.FRPS -> R.string.frps_label
+            FrpType.MEFRP -> R.string.mefrp_label
+            FrpType.CLOUDFLARE -> R.string.cloudflare_label
+        }
+    )
+}
+
+@Composable
+private fun typeShortLabel(type: FrpType): String {
+    return when (type) {
+        FrpType.FRPC -> "frpc"
+        FrpType.FRPS -> "frps"
+        FrpType.MEFRP -> "MeFrp"
+        FrpType.CLOUDFLARE -> "CF"
+    }
+}
+
+@Composable
+private fun TypeBadge(type: FrpType) {
+    val containerColor = when (type) {
+        FrpType.FRPC -> MaterialTheme.colorScheme.primaryContainer
+        FrpType.FRPS -> MaterialTheme.colorScheme.tertiaryContainer
+        FrpType.MEFRP -> MaterialTheme.colorScheme.secondaryContainer
+        FrpType.CLOUDFLARE -> MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = when (type) {
+        FrpType.FRPC -> MaterialTheme.colorScheme.onPrimaryContainer
+        FrpType.FRPS -> MaterialTheme.colorScheme.onTertiaryContainer
+        FrpType.MEFRP -> MaterialTheme.colorScheme.onSecondaryContainer
+        FrpType.CLOUDFLARE -> MaterialTheme.colorScheme.onErrorContainer
+    }
+    Text(
+        text = typeLabel(type),
+        style = MaterialTheme.typography.labelSmall,
+        color = contentColor,
+        maxLines = 1,
+        softWrap = false,
+        modifier = Modifier
+            .background(containerColor, RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
 }

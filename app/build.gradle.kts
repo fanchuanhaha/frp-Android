@@ -124,8 +124,8 @@ android {
         minSdk = 23
         targetSdk = 37
         compileSdk = 37
-        versionCode = 22
-        versionName = "1.3.2"
+        versionCode = 26
+        versionName = "1.4.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -133,6 +133,8 @@ android {
 
         buildConfigField("String", "FrpcFileName", "\"libfrpc.so\"")
         buildConfigField("String", "FrpsFileName", "\"libfrps.so\"")
+        buildConfigField("String", "MefrpcFileName", "\"libmefrpc.so\"")
+        buildConfigField("String", "CloudflaredFileName", "\"libcloudflared.so\"")
         buildConfigField("String", "FrpcConfigFileName", "\"frpc.toml\"")
         buildConfigField("String", "FrpsConfigFileName", "\"frps.toml\"")
     }
@@ -168,8 +170,8 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "x86_64", "armeabi-v7a")
-            isUniversalApk = true
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
         }
     }
     namespace = "io.github.acedroidx.frp"

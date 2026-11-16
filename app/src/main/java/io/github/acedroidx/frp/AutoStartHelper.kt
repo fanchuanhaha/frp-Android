@@ -21,17 +21,15 @@ object AutoStartHelper {
             }
         }
 
-        addConfigs(FrpType.FRPC, PreferencesKey.AUTO_START_FRPC_LIST)
-        addConfigs(FrpType.FRPS, PreferencesKey.AUTO_START_FRPS_LIST)
+        FrpType.entries.forEach { type ->
+            addConfigs(type, type.getAutoStartPreferencesKey())
+        }
 
         return result
     }
 
     fun parseType(typeValue: String?): FrpType? {
-        return when (typeValue?.lowercase()) {
-            FrpType.FRPC.typeName -> FrpType.FRPC
-            FrpType.FRPS.typeName -> FrpType.FRPS
-            else -> null
-        }
+        val normalized = typeValue?.lowercase() ?: return null
+        return FrpType.entries.firstOrNull { it.typeName == normalized }
     }
 }

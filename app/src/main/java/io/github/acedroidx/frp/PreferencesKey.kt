@@ -4,6 +4,8 @@ object PreferencesKey {
     const val AUTO_START = "auto_start"
     const val AUTO_START_FRPC_LIST = "auto_start_frpc_list"
     const val AUTO_START_FRPS_LIST = "auto_start_frps_list"
+    const val AUTO_START_MEFRP_LIST = "auto_start_mefrp_list"
+    const val AUTO_START_CLOUDFLARE_LIST = "auto_start_cloudflare_list"
     const val AUTO_START_LAUNCH = "auto_start_launch"
     const val AUTO_START_BROADCAST = "auto_start_broadcast"
     const val AUTO_STOP_BROADCAST = "auto_stop_broadcast"

@@ -47,7 +47,10 @@ class FrpConfigProvider : ContentProvider() {
             CODE_CONFIGS -> {
                 var id = 0L
                 FrpType.entries.forEach { type ->
-                    val names = type.getDir(context).list()?.toList() ?: emptyList()
+                    val names = type.getDir(context).listFiles()
+                        ?.filter { it.isFile && it.name.endsWith(".toml") }
+                        ?.map { it.name }
+                        ?: emptyList()
                     names.forEach { name ->
                         cursor.addRow(arrayOf<Any>(id++, type.typeName, name))
                     }
