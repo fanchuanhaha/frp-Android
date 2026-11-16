@@ -9,6 +9,15 @@ A frp client for Android
 <img src="./image/image2.png" alt="image2.png" height="500">
 </div>
 
+## 支持的启动器
+
+除 frpc / frps 外，本应用还支持：
+
+- **MeFrp**：新增配置时选择 MeFrp，创建后编辑配置，粘贴 `./mefrpc -t <token> -p <端口号>`（也可只填写 token 和端口），启动时会自动解析并运行内置的 `mefrpc`。
+- **Cloudflare Tunnel**：新增 Cloudflare 配置后，粘贴 `cloudflared service install <token>`、`--token <token>` 或直接粘贴 token，启动时会自动提取 token 并以内置 `cloudflared` 运行隧道。
+
+首页列表会用类型标签区分 frpc / frps / MeFrp / Cloudflare，开机自启、快捷设置磁贴和配置备份同样适用。
+
 ## 编译方法
 
 如果您想更换frp内核，可以通过Github Actions或通过Android Studio编译
