@@ -90,6 +90,8 @@
     <string name="frps_label">frps</string>
     <string name="mefrp_label">MeFrp</string>
     <string name="cloudflare_label">Cloudflare 隧道</string>
+    <string name="cloudflare_short_label">CF隧道</string>
+    <string name="filter_all">全部</string>
     <string name="mefrp_input_hint">粘贴 MeFrp 启动命令，或分两行填写 token 与端口。</string>
     <string name="mefrp_create_hint">先创建配置，再在编辑页粘贴 MeFrp 启动命令（例如 ./mefrpc -t token -p 端口）。</string>
     <string name="mefrp_config_comment"># 在此粘贴 MeFrp 启动命令，例如：./mefrpc -t &lt;token&gt; -p &lt;端口&gt;</string>

@@ -35,7 +35,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -228,6 +230,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val currentTheme by themeMode.collectAsStateWithLifecycle(themeMode.collectAsState().value)
             val openDialog = remember { mutableStateOf(false) }
+            val filterType = remember { mutableStateOf<FrpType?>(null) }
             val snackbarHostState = remember { SnackbarHostState() }
 
             FrpTheme(themeMode = currentTheme) {
@@ -271,15 +274,26 @@ class MainActivity : ComponentActivity() {
                     SnackbarHost(hostState = snackbarHostState)
                 }) { contentPadding ->
                     // Screen content
-                    Box(
+                    Column(
                         modifier = Modifier
                             .padding(contentPadding)
-                            .verticalScroll(rememberScrollState())
-                            .scrollable(
-                                orientation = Orientation.Vertical,
-                                state = rememberScrollableState { delta -> 0f })
+                            .fillMaxSize()
                     ) {
-                        MainContent()
+                        LauncherFilterBar(
+                            selectedType = filterType.value,
+                            onSelect = { filterType.value = it }
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .scrollable(
+                                    orientation = Orientation.Vertical,
+                                    state = rememberScrollableState { delta -> 0f })
+                        ) {
+                            MainContent(filterType.value)
+                        }
                     }
                 }
                 if (openDialog.value) {
@@ -296,29 +310,51 @@ class MainActivity : ComponentActivity() {
 
     @Preview(showBackground = true)
     @Composable
-    fun MainContent() {
+    fun MainContent(selectedType: FrpType? = null) {
         val configLists by configLists.collectAsStateWithLifecycle(emptyMap())
+        val visibleConfigs = if (selectedType == null) {
+            // “全部”直接平铺所有隧道，不按类型分组
+            FrpType.entries.flatMap { configLists[it].orEmpty() }
+        } else {
+            configLists[selectedType].orEmpty()
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (configLists.values.all { it.isEmpty() }) {
+            if (visibleConfigs.isEmpty()) {
                 Text(
                     stringResource(R.string.no_config),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center
                 )
             }
+            visibleConfigs.forEach { config -> FrpConfigItem(config) }
+        }
+    }
+
+    @Composable
+    private fun LauncherFilterBar(selectedType: FrpType?, onSelect: (FrpType?) -> Unit) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = selectedType == null,
+                onClick = { onSelect(null) },
+                label = { Text(stringResource(R.string.filter_all)) }
+            )
             FrpType.entries.forEach { type ->
-                val configs = configLists[type].orEmpty()
-                if (configs.isNotEmpty()) {
-                    Text(
-                        typeLabel(type), style = MaterialTheme.typography.titleLarge
-                    )
-                    configs.forEach { config -> FrpConfigItem(config) }
-                }
+                FilterChip(
+                    selected = selectedType == type,
+                    onClick = { onSelect(type) },
+                    label = { Text(typeShortLabel(type)) }
+                )
             }
         }
     }
@@ -992,7 +1028,7 @@ private fun typeShortLabel(type: FrpType): String {
         FrpType.FRPC -> "frpc"
         FrpType.FRPS -> "frps"
         FrpType.MEFRP -> "MeFrp"
-        FrpType.CLOUDFLARE -> "CF"
+        FrpType.CLOUDFLARE -> stringResource(R.string.cloudflare_short_label)
     }
 }
 
@@ -1011,7 +1047,7 @@ private fun TypeBadge(type: FrpType) {
         FrpType.CLOUDFLARE -> MaterialTheme.colorScheme.onErrorContainer
     }
     Text(
-        text = typeLabel(type),
+        text = typeShortLabel(type),
         style = MaterialTheme.typography.labelSmall,
         color = contentColor,
         maxLines = 1,

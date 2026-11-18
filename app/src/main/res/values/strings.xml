@@ -91,6 +91,8 @@
     <string name="frps_label">frps</string>
     <string name="mefrp_label">MeFrp</string>
     <string name="cloudflare_label">Cloudflare Tunnel</string>
+    <string name="cloudflare_short_label">CF Tunnel</string>
+    <string name="filter_all">All</string>
     <string name="mefrp_input_hint">Paste the MeFrp start command, or enter the token and port on separate lines.</string>
     <string name="mefrp_create_hint">Create the config first, then paste the MeFrp command on the edit page (e.g. ./mefrpc -t token -p port).</string>
     <string name="mefrp_config_comment"># Paste the MeFrp start command here, e.g. ./mefrpc -t &lt;token&gt; -p &lt;port&gt;</string>
